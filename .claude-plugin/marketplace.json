@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "es-ita-claude-skills",
+  "description": "Особисті скіли ITnet2 / ITA, що не їдуть у TFVC.",
+  "owner": { "name": "trnvdn" },
+  "plugins": [
+    {
+      "name": "es-ita",
+      "description": "Опис виконаних змін для ITA і текстовки журналу робіт (Timesheet).",
+      "author": { "name": "trnvdn" },
+      "source": "./",
+      "homepage": "https://github.com/trnvdn/ESItaClaudeSkills"
+    }
+  ]
+}

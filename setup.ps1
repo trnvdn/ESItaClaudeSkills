@@ -1,41 +1,53 @@
 <#
 .SYNOPSIS
-    Ставить junction'и на скіли цього репозиторію у каталог, де їх шукає Claude Code.
+    Підключає скіли цього репозиторію до Claude Code через junction'и.
+
+.DESCRIPTION
+    Типово лінкує в каталог скілів користувача (~\.claude\skills) - тоді скіли видно
+    з будь-якого проєкту й розташування робочої копії ITnet2 не має значення.
+    -ProjectRoot <шлях> лінкує натомість у <шлях>\.claude\skills (лише для того проєкту).
+
+    Junction - не копія: правки у .\skills діють одразу, git бачить їх тут.
+
 .EXAMPLE
     .\setup.ps1
+.EXAMPLE
     .\setup.ps1 -ProjectRoot C:\ITnet2\ITnet2
-    .\setup.ps1 -Scope User
+.EXAMPLE
     .\setup.ps1 -Remove
 #>
 [CmdletBinding()]
 param(
-    # Куди лінкувати: Project - <ProjectRoot>\.claude\skills, User - ~\.claude\skills
-    [ValidateSet('Project', 'User')]
-    [string] $Scope = 'Project',
-
-    [string] $ProjectRoot = 'D:\ITA\ITNet2',
+    # Підключити в конкретний проєкт замість каталогу користувача
+    [string] $ProjectRoot,
 
     # Обмежити перелік скілів (типово - усі з .\skills)
     [string[]] $Name,
 
+    # Зняти підключення
     [switch] $Remove
 )
 
 $ErrorActionPreference = 'Stop'
 
 $source = Join-Path $PSScriptRoot 'skills'
-$target = if ($Scope -eq 'User') {
-    Join-Path $env:USERPROFILE '.claude\skills'
+if (-not (Test-Path $source)) { throw "Не знайдено каталог скілів: $source" }
+
+if ($ProjectRoot) {
+    if (-not (Test-Path $ProjectRoot)) { throw "Не знайдено проєкт: $ProjectRoot" }
+    $target = Join-Path $ProjectRoot '.claude\skills'
 } else {
-    Join-Path $ProjectRoot '.claude\skills'
+    $target = Join-Path $env:USERPROFILE '.claude\skills'
 }
 
 if (-not (Test-Path $target)) {
-    throw "Не знайдено каталог скілів: $target"
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    Write-Host "created  $target"
 }
 
 $skills = Get-ChildItem -Path $source -Directory
 if ($Name) { $skills = $skills | Where-Object { $Name -contains $_.Name } }
+if (-not $skills) { throw 'Нема чого підключати - перелік скілів порожній.' }
 
 foreach ($skill in $skills) {
     $link = Join-Path $target $skill.Name
@@ -55,4 +67,10 @@ foreach ($skill in $skills) {
 
     New-Item -ItemType Junction -Path $link -Target $skill.FullName | Out-Null
     Write-Host "linked   $($skill.Name)  ->  $($skill.FullName)"
+}
+
+if (-not $Remove) {
+    Write-Host ''
+    Write-Host "Готово. Каталог підключення: $target"
+    Write-Host 'Перезапустіть сесію Claude Code, щоб скіли зʼявились у переліку.'
 }

@@ -120,8 +120,15 @@ Notion). Персональні зміни класти в `%USERPROFILE%\.claud
 Далі — варіант із файлом експорту. Основний шлях (журнал читається й пишеться просто в
 Notion) — у розділі «Notion через конектор»; кроки 3–5 у ньому ті самі.
 
+Модуль імпортувати **з каталогу цього скіла** — його абсолютний шлях видно зі шляху
+`SKILL.md`, який зараз читається. Залежно від способу підключення це
+`$env:CLAUDE_PLUGIN_ROOT\skills\worklog-entries\lib\Worklog.psm1` (плагін) або
+`$env:USERPROFILE\.claude\skills\worklog-entries\lib\Worklog.psm1` (каталог скілів
+користувача). Жорсткого шляху всередині робочого проєкту не припускати — скіл живе
+поза ним.
+
 ```powershell
-Import-Module .\.claude\skills\worklog-entries\lib\Worklog.psm1 -Force
+Import-Module "<каталог скіла>\lib\Worklog.psm1" -Force
 $zip = '<шлях до експорту Notion .zip або .csv>'
 
 # 1. що є в журналі по задачі

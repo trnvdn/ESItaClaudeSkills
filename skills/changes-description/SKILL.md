@@ -16,8 +16,9 @@ description: Короткий опис виконаних змін для вст
 тому **жодних** таблиць, тегів, `|`, `**`, `#` і вирівнювання пробілами - тільки текст,
 порожні рядки між блоками і `-` для переліків.
 
-Механіка пакетів (режими імпорту, `CNFOBJ`/`CNFVAL`/`UPGRCONF`) -
-`.claude/skills/itnet2-customer-logic/references/config-packages.md`.
+Механіка пакетів (режими імпорту, `CNFOBJ`/`CNFVAL`/`UPGRCONF`) - у скілі
+`itnet2-customer-logic` (`references/config-packages.md`), якщо він підключений у
+цьому проєкті; цей скіл від нього не залежить.
 
 ## Вхідні дані - одним питанням через `AskUserQuestion`
 

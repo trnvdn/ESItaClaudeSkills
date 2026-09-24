@@ -1,0 +1,8 @@
+{
+  "name": "es-ita",
+  "description": "Особисті скіли для роботи з ITnet2 / ITA: опис виконаних змін для ITA і текстовки журналу робіт (Timesheet).",
+  "version": "1.0.0",
+  "author": { "name": "trnvdn" },
+  "homepage": "https://github.com/trnvdn/ESItaClaudeSkills",
+  "keywords": ["itnet2", "ita", "worklog", "timesheet", "changelog"]
+}
