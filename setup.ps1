@@ -46,7 +46,8 @@ foreach ($skill in $skills) {
             Write-Warning "$link - справжній каталог, не junction. Пропущено."
             continue
         }
-        Remove-Item -LiteralPath $link -Force
+        # rmdir знімає сам junction і не чіпає вміст цілі (Remove-Item ходить усередину)
+        cmd.exe /c rmdir "$link" | Out-Null
         if ($Remove) { Write-Host "removed  $($skill.Name)"; continue }
     } elseif ($Remove) {
         continue
