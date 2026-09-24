@@ -245,13 +245,18 @@ function Get-WorklogLimitation
 	if (-not $Config) { $Config = Get-WorklogConfig -SkipValidation }
 	$columns = $Config.notion.columns
 
+	# Код задачі (UNPLA) може лежати двома способами, і обидва повноцінні:
+	#   1) прямо в записі журналу - колонка taskKey;
+	#   2) на сторінці задачі, куди веде зв'язок task, у колонці taskColumns.code.
+	# Погано лише тоді, коли коду немає ніде й лишається зіставлення за назвою сторінки.
+	$viaTask = $columns.task -and $Config.notion.taskDataSourceUrl -and $Config.notion.taskColumns.code
 	if (-not $columns.taskKey -and -not $columns.task)
 	{
 		'немає ні коду задачі (taskKey/UNPLA), ні зв''язку зі сторінкою задачі - записи задачі знайти неможливо, працюють лише режими з явними датами й інтервалами'
 	}
-	elseif (-not $columns.taskKey)
+	elseif (-not $columns.taskKey -and -not $viaTask)
 	{
-		'немає поля з кодом задачі (UNPLA) - пошук іде через зв''язок і назву сторінки, тобто ламається від перейменування задачі'
+		'код задачі не описаний ні в журналі (taskKey), ні в базі задач (taskColumns.code) - лишається зіставлення за назвою сторінки, яке ламається від перейменування'
 	}
 	if (-not $columns.filled)
 	{
@@ -531,6 +536,9 @@ function Get-WorklogQuery
 	.PARAMETER Kind
 	Journal - записи журналу за період; Tasks - сторінки задач за кодом (потребує
 	notion.taskDataSourceUrl).
+	.PARAMETER TaskPage
+	Сторінка задачі (id або посилання) - звузити журнал по зв'язку, коли поля коду в
+	записі немає. Спершу знайти сторінку запитом -Kind Tasks.
 	.EXAMPLE
 	Get-WorklogQuery -Kind Journal -From 2026-09-15
 	.EXAMPLE
@@ -540,7 +548,8 @@ function Get-WorklogQuery
 		[ValidateSet('Journal', 'Tasks')] [string]$Kind = 'Journal',
 		[datetime]$From,
 		[datetime]$To,
-		[string]$TaskCode
+		[string]$TaskCode,
+		[string]$TaskPage
 	)
 
 	$config = Get-WorklogConfig
@@ -563,7 +572,7 @@ function Get-WorklogQuery
 		$conditions = New-Object System.Collections.Generic.List[string]
 		if ($TaskCode)
 		{
-			if ($task.code) { $conditions.Add(('"{0}" = {1}' -f $task.code, $quoted)) }
+			if ($task.code) { $conditions.Add(('cast("{0}" as text) = {1}' -f $task.code, $quoted)) }
 			if ($task.name) { $conditions.Add(('"{0}" like ''%{1}%''' -f $task.name, $TaskCode)) }
 			if ($conditions.Count -eq 0)
 			{
@@ -594,7 +603,13 @@ function Get-WorklogQuery
 	$conditions = New-Object System.Collections.Generic.List[string]
 	if ($From) { $conditions.Add(('date("{0}") >= date(''{1}'')' -f $start, $From.ToString('yyyy-MM-dd', $script:Invariant))) }
 	if ($To) { $conditions.Add(('date("{0}") <= date(''{1}'')' -f $start, $To.ToString('yyyy-MM-dd', $script:Invariant))) }
-	if ($TaskCode -and $columns.taskKey) { $conditions.Add(('"{0}" = {1}' -f $columns.taskKey, $quoted)) }
+	# cast - щоб умова працювала і для текстового, і для числового поля коду
+	if ($TaskCode -and $columns.taskKey) { $conditions.Add(('cast("{0}" as text) = {1}' -f $columns.taskKey, $quoted)) }
+	if ($TaskPage -and $columns.task)
+	{
+		# зв'язок повертається як JSON-масив посилань, тому звужуємо по входженню id сторінки
+		$conditions.Add(('"{0}" like ''%{1}%''' -f $columns.task, (Get-NotionPageId $TaskPage)))
+	}
 	if ($conditions.Count) { $sql += "`nwhere " + ($conditions -join ' and ') }
 
 	return $sql + "`norder by start"
@@ -614,8 +629,10 @@ function ConvertFrom-NotionRows
 	самий місцевий час, що його бачить користувач у Notion, тож пояс не перераховується
 	(так само, як відкидається "(GMT+2)" у CSV-експорті).
 	.PARAMETER TasksPath
-	JSON рядків бази "Task codes" (псевдоніми url, code, name) - щоб зі зв'язку TaskCode
-	отримати назву задачі, а не лише посилання: міжбазовий SQL-запит доступний не на всіх тарифах.
+	JSON рядків бази задач (псевдоніми url, code, name) - щоб зі зв'язку отримати не лише
+	посилання, а й НАЗВУ та КОД задачі: міжбазовий SQL-запит доступний не на всіх тарифах.
+	Код зі зв'язаної сторінки лягає в taskKey запису, тож пошук записів задачі працює й тоді,
+	коли в самому журналі поля коду немає - це штатна розкладка, а не обхідний шлях.
 	#>
 	param(
 		[Parameter(Mandatory)] [string]$Path,
@@ -626,15 +643,27 @@ function ConvertFrom-NotionRows
 	$config = Get-WorklogConfig
 	$rows = Get-NotionRowArray $Path
 	$titles = @{}
+	$codes = @{}
 	if ($TasksPath)
 	{
 		foreach ($task in (Get-NotionRowArray $TasksPath))
 		{
 			$url = Get-OptionalValue $task 'url'
-			if ($url)
+			if (-not $url)
 			{
-				$titles[(Get-NotionPageId $url)] = Get-OptionalValue $task 'name'
+				continue
 			}
+			$id = Get-NotionPageId $url
+			$name = Get-OptionalValue $task 'name'
+			$titles[$id] = $name
+			# код беремо з поля коду, а як воно порожнє - з назви виду "[1727840] ...":
+			# назви ведуться вручну й бувають неоднорідні, тому поле коду завжди в пріоритеті
+			$code = (Get-OptionalValue $task 'code').Trim()
+			if (-not $code)
+			{
+				$code = Get-WorklogCodeFromTitle $name
+			}
+			$codes[$id] = $code
 		}
 	}
 
@@ -653,12 +682,18 @@ function ConvertFrom-NotionRows
 		$end = ConvertFrom-NotionRowDate $endCell $config
 		$taskPage = Get-NotionPageId (Get-OptionalValue $row 'task')
 		$title = if ($taskPage -and $titles.ContainsKey($taskPage)) { $titles[$taskPage] } else { '' }
+		# код із самого запису має пріоритет; немає його - беремо зі зв'язаної сторінки задачі
+		$key = (Get-OptionalValue $row 'key').Trim()
+		if (-not $key -and $taskPage -and $codes.ContainsKey($taskPage))
+		{
+			$key = $codes[$taskPage]
+		}
 
 		$entries.Add((New-WorklogEntry -Date $start.Date -Start ([int]$start.TimeOfDay.TotalMinutes) `
 			-End ([int]($end - $start.Date).TotalMinutes) -Text (Get-OptionalValue $row 'text').Trim() `
 			-Task $title -Auto ((Get-OptionalValue $row 'auto') -eq $config.notion.mcpYesValue) `
 			-Page (Get-OptionalValue $row 'page') -Filled ((Get-OptionalValue $row 'filled') -eq $config.notion.mcpYesValue) `
-			-TaskPage $taskPage -TaskKey ((Get-OptionalValue $row 'key').Trim())))
+			-TaskPage $taskPage -TaskKey $key))
 	}
 
 	if (-not $OutPath)
@@ -691,6 +726,28 @@ function Get-NotionPageId([string]$Cell)
 	if ($Cell -match '([0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12})')
 	{
 		return ($Matches[1] -replace '-', '').ToLower()
+	}
+	return ''
+}
+
+
+function Get-WorklogCodeFromTitle([string]$Title)
+{
+	<#
+	.SYNOPSIS
+	Код задачі з назви сторінки: "[1727840] Назва" -> 1727840, "1730614" -> 1730614.
+	.DESCRIPTION
+	Запасний шлях на випадок, коли поле коду в базі задач не заповнене. Назви ведуться
+	руками й бувають будь-які, тому це здогад, а не джерело істини.
+	#>
+	if (-not $Title)
+	{
+		return ''
+	}
+	$match = [regex]::Match($Title, '^\s*\[?\s*(\d{4,})\s*\]?')
+	if ($match.Success)
+	{
+		return $match.Groups[1].Value
 	}
 	return ''
 }
